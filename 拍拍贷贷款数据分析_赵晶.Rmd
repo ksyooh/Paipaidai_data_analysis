@@ -1,0 +1,451 @@
+
+
+# 拍拍贷贷款数据分析 -- 赵晶
+========================================================
+
+```{r global_options, include=FALSE} 
+knitr::opts_chunk$set(echo=FALSE,message=FALSE,warning=FALSE)
+# 加载你最终使用的所有组件
+# 在这个代码块的分析中。
+
+# 注意，在这个代码块中，将参数 "echo" 设为假。
+# This prevents the code from displaying in the knitted HTML output.这可以避免代码混入 HTML 输出显示。
+# 应当在文件中，对所有代码块设为 echo=FALSE 。
+library(ggplot2)
+library(memisc)
+library(GGally)
+library(tidyr)
+library(lubridate)
+library(dplyr)
+```
+
+本次分析探索的数据为LC(贷款人特征)数据集，包含了成交时间从2015.01.01日到2017.01.30的328553条贷款人记录。本次主要分析借款金额及其它一些属性。
+
+```{r, Load_the_Data}
+# 加载数据
+lc <- read.csv('LC.csv')
+lp <- read.csv('LP.csv')
+```
+
+
+## 1.1 单变量绘图选择
+```{r, dataDetail}
+str(lc)
+summary(lc)
+```
+
+数据集包含21个变量，328553条观察记录。
+
+
+```{r, age_univariate}
+ggplot(data = lc, aes(x = 年龄)) +
+  geom_histogram(binwidth = 1) +
+  theme(text = element_text(family = "STHeiti"))
+
+summary(lc$年龄)
+```
+
+大多数借款人的年龄在20-35岁之间
+
+
+```{r, sex_univariate}
+
+ggplot(data = lc, aes(x = 性别)) +
+  geom_bar() +
+  theme(text = element_text(family = "STHeiti"))
+
+table(lc$性别)
+```
+
+男性借款人居多
+
+
+
+```{r, loanAmout}
+
+# 使用quantile函数过滤掉少数的高额借款人
+ggplot(data = lc, aes(x = 借款金额)) +
+  geom_histogram() +
+  xlim(0, quantile(lc$借款金额, 0.99)) +
+  theme(text = element_text(family = "STHeiti"))
+  
+summary(lc$借款金额)
+```
+
+大多数人借款金额低于5000
+
+
+```{r, loanInstallment}
+ggplot(data = lc, aes(x = 借款期限)) +
+  geom_histogram(binwidth = 1) +
+  theme(text = element_text(family = "STHeiti"))
+
+```
+
+借款期限大多为6期、12期
+
+
+
+```{r, loanChanel}
+ggplot(data = lc, aes(x = 借款类型)) +
+  geom_bar() +
+  theme(text = element_text(family = "STHeiti"))
+```
+
+借款类型分布：以普通、其他、APP闪电为主
+
+
+```{r, credit}
+
+# 将多个认证列转化为2列：认证类型、是否成功认证
+lc_long<- gather(lc, "认证类型", "是否成功认证", 11:16)
+
+#成功认证的值改为Y，未成功认证的值改为N
+lc_long$是否成功认证 <- ifelse(lc_long$是否成功认证 == "成功认证", "Y", "N")
+lc_long$是否成功认证 <- factor(lc_long$是否成功认证)
+lc_long$认证类型 <- factor(lc_long$认证类型)
+
+ggplot(data = subset(lc_long, lc_long$是否成功认证 == "Y"), 
+       aes(x = 认证类型)) +
+  geom_bar() +
+  theme(text = element_text(family = "STHeiti")) 
+
+# 将以下六项认证的值改为0或1
+# 1为成功认证，0为未成功认证，将认证项相加
+lc$手机认证 <- ifelse(lc$手机认证 == "成功认证", 1, 0)
+lc$户口认证 <- ifelse(lc$户口认证 == "成功认证", 1, 0)
+lc$视频认证 <- ifelse(lc$视频认证 == "成功认证", 1, 0)
+lc$学历认证 <- ifelse(lc$学历认证 == "成功认证", 1, 0)
+lc$征信认证 <- ifelse(lc$征信认证 == "成功认证", 1, 0)
+lc$淘宝认证 <- ifelse(lc$淘宝认证 == "成功认证", 1, 0)
+
+# 用相加后的值创建新变量“认证数量”
+lc$认证数量 <- factor(lc$手机认证 + lc$户口认证 + lc$视频认证 + 
+  lc$学历认证 + lc$征信认证 + lc$淘宝认证)
+
+table(lc$认证数量)
+```
+
+这一步进行了如下数据处理：1.将六项认证：手机认证、户口认证、视频认证、学历认证、征信认证、淘宝认证及值转化为2列，“认证类型”与“是否成功认证”。2.将六项认证的值改为0或1，1为成功认证，0为未成功认证，然后将六项值相加得到“认证数量”列。
+
+通过图表可以看出大多数人只通过手机或/和学历认证，那么认证情况是否存在潜在的还款风险? 
+
+接下来探索完成各项认证的人数。有大约40%的人未做任何记录，40%的人只认证了一项，15%的人进行了2项认证。同时通过3/4/5/6项认证的人极少。
+
+
+```{r, creditLevel}
+ggplot(data = lc, aes(x = 初始评级)) +
+  geom_bar() +
+  theme(text = element_text(family = "STHeiti")) 
+```
+
+初始评级: C、D级最多，大概与认证项目有关，这需要进一步探索。
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, loanRate}
+ggplot(data = lc, aes(x = 借款利率)) +
+  geom_histogram(binwidth = 0.5) +
+  theme(text = element_text(family = "STHeiti")) 
+
+table(lc$借款利率)
+```
+
+借款利率分布：借款利率大多数多20%、22%
+
+
+```{r, loanByMonth}
+ggplot(data = subset(lc, 借款金额 < quantile(借款金额, 0.99)), 
+       aes(x = month(借款成功日期))) +
+  scale_x_continuous(breaks = seq(1,12,1)) +
+  geom_histogram(binwidth = 0.5) +
+  theme(text = element_text(family = "STHeiti"))
+```
+
+岁末正值春节从9月份开始借款人数逐月递增，到2月份借款人数急剧下降。我想2月份一般是过年的时期，因为前2月已备好年货，并且大家都在享受春节的休闲假期因此借款人数下降幅度大。
+
+```{r, fistloan}
+table(lc$是否首标)
+```
+
+将近30%的借款人是首次使用拍拍贷借款
+
+
+```{r, loanSuccessNo.}
+table(lc$历史成功借款次数)
+
+ggplot(data = subset(lc, 历史成功借款次数 < 28), aes(x = 历史成功借款次数)) +
+  geom_histogram(binwidth = 1) +
+  xlim(1, 20) +
+  theme(text = element_text(family = "STHeiti"))
+
+summary(lc$历史成功借款次数)
+```
+
+大多数借款人历史成功借款次数低于5次，居然有几个借款人有大于50次的借款记录。
+
+
+```{r}
+ggplot(data = subset(lc, 历史逾期还款期数 > 0 & 历史逾期还款期数 < 20), 
+       aes(x = 历史逾期还款期数)) +
+  geom_histogram(binwidth = 1) +
+  theme(text = element_text(family = "STHeiti"))
+
+table(lc$历史逾期还款期数)
+summary(lc$历史逾期还款期数)
+
+```
+
+逾期还款的记录中大部分逾期期次为3次及以下
+
+
+# 1.2 单变量分析总结
+
+### 你的数据集结构是什么？
+1）328553个观察对象，22个变量。分别为：Id、借款金额、借款期限、借款利率、借款成功日期、初始评级、借款类型、是否首标、年龄、性别、手机认证、户口认证、视频认证、学历认证、征信认证、淘宝认证、历史成功借款次数、历史成功借款金额、总待还本金、历史正常还款期数、历史逾期还款期数。
+
+2）包含一个ordered factor 变量：
+初始评级：A、B、C、D、E、F(由高到低)
+
+3）其它观察：
+- 借款金额中位数为3397元
+- 借款人大多年龄为20-38岁之间
+- 男性借款人居多
+- 12月、1月借款人数量大幅增长
+
+
+### 你的数据集内感兴趣的主要特性有哪些？
+我感兴趣的特征为借款金额，我想探索不同年龄的男性与女性借款模式有哪些差异？我认为借款人的年龄、资质、借款类型可以用于辅助探索。
+
+### 你认为数据集内哪些其他特征可以帮助你探索兴趣特点？
+年龄、初始评级、借款类型、认证情况、历史成功借款次数、历史成功借款金额，历史逾期还款期数等与借款金额有关系。
+
+
+### 根据数据集内已有变量，你是否创建了任何新变量？
+为了探索进行过0至6种认证的借款人数量，将6种认证列的值改为0或1，将认证的值相加，创建“认证数量”列。
+
+
+### 在已经探究的特性中，是否存在任何异常分布？你是否对数据进行一些操作，如清洁、调整或改变数据的形式？如果是，你为什么会这样做？
+1）在探索借款金额的分布时，因存在少量高额借款造成分布严重偏斜，因此过滤掉99百分数以上的记录。
+2）为了对比6种认证的数量，将宽数据集转化为长数据集，将6种认证合并为2列“认证类型”，“是否成功认证”。
+3）将6种认证类型转化为因子变量，以便于分类绘图。
+
+
+# 2.1 双变量绘图选择
+
+```{r, age_amout}
+
+# 过滤掉年龄小于20大于50，并且借款金额大于95百分位的数据
+lc_subset_by_age <- subset(lc, 借款金额 < quantile(借款金额, 0.95) & 
+                             年龄 >= 20 & 年龄 < 50)
+
+ggplot(data = lc_subset_by_age, aes(x = 年龄, y = 借款金额)) +
+  geom_point(alpha = 0.01, position = position_jitter(h=0)) +
+  geom_line(stat = "summary", fun.y = "mean", color = "red") +
+  theme(text = element_text(family = "STHeiti")) 
+
+cor.test(lc_subset_by_age$借款金额, lc_subset_by_age$年龄, 
+         method = "pearson")
+
+```
+
+本次分析主要关注网贷主体人群的借款特征，因此过滤掉20岁以下和50岁以上的少量借款人群，以及少数高额借款记录。网贷人群年龄主要在20-38岁之间，借款金额均值随着年龄的增长有小副的上升，但年龄与借款金额间不存在线性关系。
+
+
+```{r, rate_amount}
+ggplot(data = subset(lc, 借款金额 < quantile(借款金额, 0.99)), 
+       aes(x = 借款利率, y = 借款金额)) +
+  geom_point(alpha = 0.01, position = position_jitter(h=0)) +
+  theme(text = element_text(family = "STHeiti"))
+
+cor.test(lc$借款利率, lc$借款金额, method = "pearson")
+```
+
+利率在18%，20%，22%时借款人数最多，这应该是因为网贷的利率大约是处于这个水平。而且多数情况下人们是因为需要钱才去借贷，而非看到利率低就去借钱，利率与借款金额间无线性关系。
+
+
+
+```{r, month_loanAmount}
+#从借款日期中提取月份创建新变量“借款月份”
+lc$借款月份 <- month(lc$借款成功日期)
+table(lc$借款月份)
+
+ggplot(data = subset(lc, 借款金额 < quantile(借款金额, 0.95)), 
+       aes(x = 借款月份, y = 借款金额)) +
+  scale_x_continuous(breaks = seq(1,12,1)) +
+  geom_point(alpha = 0.01, position = position_jitter(h=0)) +
+  geom_line(stat = "summary", fun.y = mean, color = "red") +
+  theme(text = element_text(family = "STHeiti"))
+
+# 过滤掉借款金额大于95百分位的数据后，根据月份进行分组查看月借款金额均值
+subset(lc, 借款金额 < quantile(借款金额, 0.95)) %>% 
+  group_by(借款月份) %>% 
+  summarise(借款金额均值 = mean(借款金额))
+```
+
+2月借款人数急剧下降，但借款金额平均值略高于其它月份。大概是为了还之前的借款而举新债。
+
+
+
+```{r, credit_amount}
+
+ggplot(data = subset(lc, 借款金额 < quantile(借款金额, 0.99)), 
+                     aes(x = 认证数量, y = 借款金额)) +
+  geom_boxplot() +
+  theme(text = element_text(family = "STHeiti"))
+```
+
+认证数量为0次的人可借款额度较低，1-5次认证额度无太大差异，进行全部6次认证的借款人借款额度最高。
+
+
+# 2.2 双变量分析总结
+
+### 探讨你在这部分探究中观察到的一些关系。这些感兴趣的特性与数据集内其他特性有什么区别？
+1）9月到1月借款人数逐渐增加，2月借款人数急剧下降。2月借款金额平均值高于其它月份。
+2）20-38岁人群是网贷主力人群，并且在这个年龄段随着年龄的增长借款金额也小副增长。网贷人群中有部分在17-20岁，网贷呈现年轻化。这些还在上高中的人群是否有还款能力是个疑问？
+
+### 你是否观察到主要特性与其他特性之间的有趣关系？
+借款金额平均值随着认证数量的增加有小副的上升。
+
+### 你发现最强的关系是什么？
+借款月份与借款人数的有关系：9月到1月借款人数逐渐增加，2月借款人数急剧下降。
+
+
+
+# 3.1 多变量绘图选择
+
+```{r, month_amount_sex}
+ggplot(data = subset(lc, 借款金额 < quantile(借款金额, 0.95)), 
+       aes(x = 借款月份, y = 借款金额)) +
+  geom_line(aes(color = 性别), stat = "summary", fun.y = mean) +
+  theme(text = element_text(family = "STHeiti"))
+```
+
+可以看到一个有趣的现象，10月至4月，男性借款者借款金额均值高于女性，在剩下的5月至9月女性借款均值高于男性。我猜想进入盛夏女性为了展现靓丽的身姿举债健身、减肥，男性在春节前后为了孝敬父母、面子举债。
+
+
+```{r, age_amount_sex}
+
+ggplot(data = subset(lc, 借款金额 < quantile(借款金额, 0.95)), 
+       aes(x = 年龄, y = 借款金额)) +
+  geom_line(aes(color = 性别), stat = "summary", fun.y = "mean") +
+  theme(text = element_text(family = "STHeiti")) 
+
+```
+
+在30岁之前男性与女性借款者借款金额均值相当，从30岁开始女性借款金额超过男性。
+
+
+
+```{r, month_amount_credit}
+ggplot(data = lc, 
+       aes(x = 借款月份, y = 借款金额)) +
+  scale_x_continuous(breaks = seq(1,12,1)) +
+  geom_line(aes(color = 初始评级), stat = "summary", fun.y = mean) +
+  theme(text = element_text(family = "STHeiti"))
+```
+
+银行应该会根据评级决定借款人的最高借款金额，F级能借到的钱最少，C/D/E金额差不多，相比A级B级反而可以借到更多的钱，为什么会这样呢？接下来探索一下不同渠道的借款情况。
+
+
+
+```{r, month_amount_credit_chanel}
+ggplot(data = lc,  
+       aes(x = 借款月份, y = 借款金额)) +
+  scale_x_continuous(breaks = seq(1,12,1)) +
+  facet_wrap( ~ 借款类型) +
+  geom_line(aes(color = 初始评级), stat = "summary", fun.y = median) +
+  theme(text = element_text(family = "STHeiti"))
+```
+
+部分B级借款人从电商平台得到了高额的借款，因此拉高了B级借款人的平均借款金额。相比起来从电商平台可以借到更多的钱，这有可能由于电商平台的借款比较宽松。
+
+# 3.2 多变量分析总结
+
+###  探讨你在这部分探究中观察到的一些关系。通过观察感兴趣的特性，是否存在相互促进的特性？
+一个有趣的现象是，10月至4月，男性借款者借款金额均值高于女性，在剩下的5月至9月女性借款均值高于男性。我猜想进入盛夏女性为了展现靓丽的身姿举债健身、减肥，男性在春节前后为了孝敬父母、为了面子而举债。另外不同借款类型可借到的钱相差较大。
+
+### 这些特性之间是否存在有趣或惊人的联系呢？
+电商平台的借款人数最低，但借到钱大大高于其它平台。
+
+### 选项：你是否创建过数据集的任何模型？讨论你模型的优缺点。
+
+没有，因为我没有发现变量间的线性关系。
+
+------
+
+# 4.1 定稿图与总结
+
+### 绘图一
+```{r, Plot_One}
+ggplot(data = lc, aes(x = 年龄)) +
+  geom_histogram(binwidth = 1, color="darkblue", fill="lightblue") +
+  geom_vline(aes(xintercept=mean(年龄)), color="orange", 
+             linetype="dashed") +
+  theme_classic() +
+  theme(text = element_text(family = "STHeiti")) +
+  ggtitle("借款人年龄分布") +
+  labs(x = "借款人年龄", y = "借款人数量")
+  
+
+```
+
+### 描述一
+大多数借款人的年龄在20-35岁之间，平均年龄为29岁。
+
+### 绘图二
+```{r, Plot_Two}
+
+lc$借款月份 <- factor(lc$借款月份)
+
+ggplot(data = subset(lc, 借款金额 < quantile(借款金额, 0.95)),
+       aes(x = 借款月份, y = 借款金额)) +
+  geom_boxplot() +
+  theme_classic() +
+  labs(title="不同月份借款金额对比") +
+  theme(text = element_text(family = "STHeiti"))
+
+```
+
+### 描述二
+9月-次年1月借款人数不断增加，大概因为中国的春节准备年货。2月借款人数急剧下降，我猜想是因为2月份大家都沉浸在过节的休闲假期中，所以借款人数下降。但2月借款金额平均值高于其它月份大概是为了还之前的借款而举新债。
+
+### 绘图三
+```{r, Plot_Three}
+lc$借款月份 <- as.numeric(levels(lc$借款月份))[lc$借款月份]
+
+ggplot(data = subset(lc, 借款金额 < quantile(借款金额, 0.95)), 
+       aes(x = 借款月份, y = 借款金额)) +
+  scale_x_continuous(breaks = seq(1,12,1)) +
+  geom_line(aes(color = 性别), stat = "summary", fun.y = mean) +
+  scale_color_brewer(palette="Dark2") +
+  labs(title="一年当中男性与女性借款金额对比") +
+  theme_classic() +
+  theme(text = element_text(family = "STHeiti")) 
+```
+
+### 描述三
+10月至4月，男性借款者借款金额均值高于女性，在剩下的5月至9月女性借款均值高于男性。我猜想进入盛夏女性为了展现靓丽的身姿举债健身、减肥，男性在春节前后为了孝敬父母、为了送礼面子而举债。
+
+------
+
+# 4.2 反思
+在分析探索的过程中，我的兴趣点在不断的变化与调整。在对数据集进行单变量的分析后，我想探索什么样的借款人可以借到更多的钱。但在探索双变量与多变量的过程中发现根本找不出有力的关系去建模进行预测。在探索多变量时，发现了一年当中不同性别借款人借款金额的有趣变化，因此将探索兴趣点确定为“不同年龄男性与女性借款模式的差异”。
+
+但在上面的分析中，感觉到存在的一个问题是探索并没有围绕主要兴趣点展开并深入。我想这主要是因为在探索前我没有明确主要目的。
+
+探索数据的过程跟清洗数据一样，是重复和琐碎的，但在探索时感觉自己就像个冒险家去发现未知的世界，有枯燥，有平淡，有惊喜...希望将来在专业知识不断扩展的基础上，结合自身的特点与经历去探索发现不同的世界。
+
+本次分析项目对我未来转行数据分析相关工作提供了一套思考框架。拿到数据集按如下步骤分析：
+1. 了解数据源
+2. 观察数据集结构与数据类型：可视化分析前先将变量转化为合适的数据类型
+3. 单变量分析与总结：挖掘兴趣点，从数据角度而非直觉探索变量
+4. 双变量分析与总结：基本确定好探索方向后，深入挖掘变量与变量的关系
+5. 多变量分析与总结：从多个维度剖析变量
+6. 迭代分析过程
+7. 展示分析的见解与成果：要明确分析报告的受众人群，避免出现晦涩难懂的代码和术语，重视图形的美化。
+
+以上步骤是一个循序渐进的过程，避免拿到数据集后凭直觉和个人偏好直接进入双变量或多变量分析。分析的目的是交流与沟通，可视化是与读者高效沟通的主要工具，未来对数据分析过程熟练后，要多多提高可视化相关能力。
+
+
+
+
